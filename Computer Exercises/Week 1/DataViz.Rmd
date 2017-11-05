@@ -2,7 +2,7 @@
 title: "DataViz_ex1"
 author: "Kasparek"
 date: "1 listopadu 2017"
-output: html_document
+output: rmarkdown::github_document
 ---
 
 ```{r setup, include=FALSE}
