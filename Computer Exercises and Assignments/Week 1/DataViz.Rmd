@@ -21,7 +21,10 @@ require(tidyverse)
 ```{r pressure, echo=FALSE}
 ggplot(data = iris) +
   geom_histogram(binwidth = 0.2, aes(x = iris$Sepal.Width, fill = Species), colour = 'black', size=1.2)+
-  xlab('Sepal Width') + ylab('Frequency') + ggtitle('Histogram of Sepal Width')
+  xlab('Sepal Width') + ylab('Frequency') + ggtitle('Histogram of Sepal Width') + theme(plot.subtitle = element_text(vjust = 1), 
+    plot.caption = element_text(vjust = 1), 
+    plot.background = element_rect(colour = "thistle1")) +labs(y = "Frequency ") + theme(panel.background = element_rect(size = 1), 
+    plot.background = element_rect(size = 1))
 
 ```
 

@@ -1,0 +1,203 @@
+---
+title: "ML for Econometrics, Individual Assignment 2"
+author: "Radim Kasparek"
+date: "6th December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+In this assignment I predicted sentiment of the text via SVM and compared the performance of SVM with different kernel functions and costs of misclassification. The datasets used are labelled reviews from Yelp, IMDB and Amazon. I used function *ksvm* from package {kernlab}.
+
+At first, I loaded neccessary packages, loaded the data, assigned names to columns and merged the datasets.
+
+
+```{r load, message = FALSE}
+#setwd, please note that the datasets need to be saved in the same
+#directory as this .Rmd file
+#load neccessary packages, set.seed and clean enviroment
+library(kernlab)
+library(data.table)
+library(tidyverse)
+library(stringr)
+library(text2vec)
+library(tokenizers)
+library(slam)
+library(reshape2)
+
+set.seed(1211)
+rm(list = ls())
+
+#load the data, set colnames, create df
+amazon_sentences <- fread( "amazon_cells_labelled.txt", header = FALSE, sep = "\t")
+yelp_sentences <- fread( "yelp_labelled.txt", header = FALSE, sep = "\t")
+imdb_sentences <- fread( "imdb_labelled.txt", header = FALSE, sep = "\t")
+
+colnames(amazon_sentences) <- c('text', 'sentiment')
+colnames(yelp_sentences) <- c('text', 'sentiment')
+colnames(imdb_sentences) <- c('text', 'sentiment')
+
+amazon_sentences$source <- 'amazon'
+imdb_sentences$source <- 'imdb'
+yelp_sentences$source <- 'yelp'
+
+df <- rbind(amazon_sentences, yelp_sentences, imdb_sentences)
+df$id <- row.names(df) 
+```
+
+As the next step I calculated the dtm matrix from pruned corpus and attached it to the original dataframe. I decided to remove so-called *stopwords*, words shorter than 2 letters, punctuation, digits and redundant whitespaces.
+
+```{r dtm, message = FALSE}
+##create dtm_matrix
+prep_fun1 = function(x) {
+  x <- tolower(x)
+  x <- str_replace_all(x, '[:digit:]', ' ')
+  x <- str_replace_all(x, '\\b\\w{1,2}\\b',' ')
+  x <- str_replace_all(x, '[:punct:]', ' ' )
+  x <- str_replace_all(x, '\\s+', ' ')
+  return(x)
+}
+
+tok_fun = word_tokenizer
+
+#tokenize the subset of dataset
+df_train = itoken(df$text, 
+                  preprocessor = prep_fun1, 
+                  tokenizer = tok_fun, 
+                  ids = amazon_sentences$id, 
+                  progressbar = FALSE)
+
+#create vocab
+vocab = create_vocabulary(df_train, stopwords = stopwords("en"))
+pruned_vocab = prune_vocabulary(vocab, 
+                                term_count_min = 10, 
+                                doc_proportion_max = 0.5,
+                                doc_proportion_min = 0.001)
+
+vectorizer = vocab_vectorizer(pruned_vocab)
+
+#create dtm matrix
+t1 = Sys.time()
+dtm_train = create_dtm(df_train, vectorizer)
+print(difftime(Sys.time(), t1, units = 'sec'))
+
+dim(dtm_train)
+
+
+tfidf <- TfIdf$new()
+dtm_train <- fit_transform(dtm_train, tfidf)
+
+dtm_train <- as.data.frame(as.matrix(dtm_train))
+dtm_train$id <- rownames(dtm_train)
+
+#join dtm and df
+df <- df %>% left_join(dtm_train)
+```
+
+Before feeding the data to SVMs, additional cleansing was needed. I set the train-test split to 80-20 and removed the columns containing the original text, the number used for split and the source of the review. I also removed the columns corresponding to the words that had zero occurence in the training dataset. Last but not least, I converted the response variable to a factor as the goal was to predict whether the review was positive or negative.
+
+```{r additional cleaning}
+df <- df %>%
+  mutate(rnd = runif(dim(df)[1], min = 0, max = 1))
+
+test_df <- df %>% filter(rnd > 0.8)
+train_df <- df %>% filter(rnd < 0.8)
+
+test_df <- select(test_df, -text, -rnd, -source)
+train_df <- select(train_df, -text, -rnd, -source)
+
+train_df$id <- as.integer(train_df$id)
+test_df$id <- as.integer(test_df$id)
+
+
+null_sums <- colnames(test_df[,colSums(train_df) == 0])
+
+
+train_df <- train_df[, !(colnames(train_df) %in% null_sums)]
+test_df <- test_df[, !(colnames(test_df) %in% null_sums)]
+
+train_df$sentiment <- as.factor(train_df$sentiment)
+test_df$sentiment <- as.factor(test_df$sentiment)
+```
+
+
+These pre-processed data I used as the input for the svm model. In the SVM model I varied the *cost of misclassification* and the *kernel function*. The cost function I minimized in SVMs is given by: 
+$$ C \sum_{n=1}^{N}\xi_{n} + \frac{1}{2}||w||^{2}\qquad\qquad, $$ where the $C$ denotes the cost of misclassification, $\xi$ the penalty for misclassified points and $||w||$ the weights through which I normalized the margin. My goal was to *maximize* the margin and *minimize* the penalty for misclassified points. It directly follows that $C$ affects the ratio of emphasis I put on these goals. For more details please read subchapter 7.1 of (Bishop, 2006).
+
+The kernel functions I used were *vanilladot* (ordinary dot product), *polydot* (second-order polynomial with scaling set to 1 and offset set to 1), *rbfdot* (radial basis function with sigma set to 0.05) and *tanhdot* (hyperbolic tangent kernel with offset set to 1 and scale set to 1/3000. The scale was chosen as 1/N, where N is the data dimension - for more details please see http://crsouza.com/2010/03/17/kernel-functions-for-machine-learning-applications/#anova) . The formulas for these kernel functions are given below in respective order: 
+$$k(x,x') = x^{T}x'$$
+$$k(x,x') = (scale<x^{T}x'> + offset) ^ {2}$$
+$$k(x,x') = exp(-\sigma||x - x'||^{2})$$
+$$k(x,x') = \tanh(scale<x^{T}x'> + offset)$$
+
+For more details on these functions please read the documentation for {kernlab} package.
+
+```{r svms, eval = FALSE}
+###ksvm
+
+# compare mis_costs and kernel fces
+
+kernel_fces <- list(rbfdot(sigma = 0.05),
+                    polydot(scale = 1, offset = 1, degree = 2),
+                    vanilladot(),
+                    tanhdot(scale = 1/3000, offset = 1)
+                    )
+
+
+
+pred_accu <- function(miscost, type) {
+  mod <- ksvm(sentiment ~ .,
+              data = train_df,
+              kernel = type,
+              C = miscost,
+              cross = 10)
+  
+  acc <- sum(test_df$sentiment == 
+               predict(mod, test_df %>% select(-sentiment))) /
+    dim(test_df)[1] * 100
+  print(miscost)
+  return(acc)
+}
+
+mis_cost <- 10^seq(-2, 2, by = 0.1)
+result <- mis_cost
+
+
+for (i in (1:4)) {
+  result <- cbind(result,sapply(mis_cost, pred_accu, type = kernel_fces[[i]]))
+  print(i)
+}
+
+result <- as.data.frame(result)
+colnames(result) <- c('mis_cost', 'rbfdot', 'polydot', 'vanilladot', 'tanhdot')
+write.csv(result, 'results2.csv', row.names = F)
+```
+
+Here I provide a simple plot of accuracy for various values of $C$ (cost of misclassification) and kernel functions. The kernel functions are denoted by the lines, the $C$ is on the horizontal axis.
+```{r, message = FALSE}
+library(readr)
+
+results <- read_csv("results2.csv")
+result_ggplot <- melt(results, id.vars = 'mis_cost')
+colnames(result_ggplot)[2] <- 'kernel_function'
+colnames(result_ggplot)[3] <- 'accuracy'
+
+result_plot <- ggplot(result_ggplot) +
+  geom_line(aes(x = mis_cost, y = accuracy, col = kernel_function), size = 1)
+
+print(result_plot)
+
+```
+
+Based on the plot above I concluded that *vanilladot* and *tanhdot* has the best performance. The *vanilladot* has volatile performance, whereas the others for $C \geq 10$ have stable performance. The *rbfdot* and *tanhdot* perform poorly for lower $C$, nevertheless with increased $C$ they become much better. Especially the *tanhdot* function that gives the best performance of all functions used. The recommendation is then to use *tanhdot* kernel function and $C \approx 3.16$.
+
+
+#Appendix
+
+Here I provide the complete table of accuracies for used kernel functions and costs of misspecification.
+```{r}
+results %>% tbl_df %>% print(n = nrow(.))
+```

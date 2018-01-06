@@ -1,0 +1,608 @@
+---
+title: "ML for Econometrics_Ind_Assignment1"
+author: "Radim Kasparek"
+date: "25th of November 2017"
+output: html_document
+runtime: shiny
+keep_md: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(out.width = '1000px', out.height = '400px', dpi = 200, echo = TRUE)
+```
+In this assignment I inspect and compare the performance of Bayesian Linear Regression and Regularized Least Squares.  As the first step, I loaded the packages and created the data I worked with.
+
+*Please note that I decided to hide some chunks I do not consider neccessary to show. For all the code used please see the original .Rmd file.*
+```{r, message = FALSE}
+rm(list = ls())
+library(tidyverse)
+library(reshape2)
+library(shiny)
+library(assertthat)
+set.seed(1211)
+
+my_func_2 <- function(n){
+  x <- runif(n, min = -1, max = 1)
+  noise <- rnorm(n, mean = 0, sd = 0.1)
+  target <- sin(2 * pi * x) + noise
+  return(data.frame(x, target))
+}
+
+my_values <- my_func_2(100)
+target <- my_values$target
+x <- my_values$x
+```
+
+##Exercise 1
+
+In the first exercise I transformed the data by Gaussian basis function. I was asked to use 9 transformations, I chose the means to be seq(-1,1,0.25). The function used is of the following form: $$ f(x) = exp(-\frac{(x - \mu) ^ 2}{2  \sigma^{2}}) $$ I decided not to include intercept as I believe that it would not bring any benefit. If I were to include intercept, I would simply add a vector of ones as a first column of the matrix containing the gaussian transformations.
+
+```{r pressure, message = FALSE}
+rm(list = ls())
+require(tidyverse)
+require(reshape2)
+
+my_func_2 <- function(n){
+  x <- runif(n, min = -1, max = 1)
+  noise <- rnorm(n, mean = 0, sd = 0.1)
+  target <- sin(2 * pi * x) + noise
+  return(data.frame(x, target))
+}
+
+my_values <- my_func_2(100)
+my_values_01 <- my_values
+my_values_02 <- my_values
+my_values_03 <- my_values
+my_values_04 <- my_values
+my_values_005 <- my_values
+target <- my_values$target
+x <- my_values$x
+```
+
+```{r , message = FALSE, echo = FALSE}
+gaus_func <- function(x, mu, sigma_sq){
+  return(exp(-( (x - mu) ^ 2) / (2 * sigma_sq) ))
+}
+
+for (i in (1:9)) {
+  my_values <- cbind(my_values,assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.02)))
+  
+  colnames(my_values)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+for (i in (1:9)) {
+  my_values_01 <- cbind(my_values_01, gaus_func(x = x, mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.01))
+  
+  colnames(my_values_01)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+
+rm(list = ls(pattern = "trans"))
+
+for (i in (1:9)) {
+  my_values_02 <- cbind(my_values_02, assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.02)))
+  
+  colnames(my_values_02)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+rm(list = ls(pattern = "trans"))
+
+for (i in (1:9)) {
+  my_values_03 <- cbind(my_values_03, assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.03)))
+  
+  colnames(my_values_03)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+for (i in (1:9)) {
+  my_values_04 <- cbind(my_values_04, assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.04)))
+  
+  colnames(my_values_04)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+for (i in (1:9)) {
+  my_values_005 <- cbind(my_values_005, assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.005)))
+  
+  colnames(my_values_005)[i + 2] <- paste('trans_', i, sep = '')
+}
+
+rm(list = ls(pattern = "trans"))
+```
+
+```{r, echo = FALSE}
+my_gg_theme <- theme(plot.subtitle = element_text(vjust = 1), 
+                     plot.caption = element_text(vjust = 1), 
+                     axis.line = element_line(colour = "beige"), 
+                     panel.grid.major = element_line(colour = "whitesmoke", 
+                                                     size = 0.2),
+                     panel.grid.minor = element_line(size = 0.2), 
+                     axis.text.x = element_text(colour = "white"), 
+                     axis.text.y = element_text(colour = "white"), 
+                     legend.text = element_text(colour = "snow"), 
+                     panel.background = element_rect(fill = "black"), 
+                     plot.background = element_rect(fill = "black"), 
+                     legend.key = element_rect(fill = "black"), 
+                     legend.background = element_rect(fill = "black")) +
+                      theme(panel.grid.major = element_line(colour = "gray32"), 
+                      panel.grid.minor = element_line(colour = "gray31"))
+
+df_01 <- melt(my_values_01,  id.vars = c('x', 'target'), variable.name = 'transformations')
+df_02 <- melt(my_values_02,  id.vars = c('x', 'target'), variable.name = 'transformations')
+df_03 <- melt(my_values_03,  id.vars = c('x', 'target'), variable.name = 'transformations')
+df_04 <- melt(my_values_04,  id.vars = c('x', 'target'), variable.name = 'transformations')
+df_005 <- melt(my_values_005,  id.vars = c('x', 'target'), variable.name = 'transformations')
+```
+
+
+These transformations were added to the main dataframe I worked with and plotted using ggplot. In order to ease the creation of {ggplot} and {shiny}, the function *melt* from package {reshape2} was used. In the figure below the white dots show the target variable, the lines show the transformations of x, in the dropdown list you can adjust the variance of gaussian functions used for transforming the variable x. For further analysis I decided to use 0.02 as I believe these functions will fit the data best.
+
+```{r gauss_functions_shiny, echo = FALSE, eval = TRUE}
+
+inputPanel(
+  selectInput("n_breaks", label = "variance",
+              choices = c(0.005, 0.01, 0.02, 0.03, 0.04), selected = 0.02)
+  )
+
+
+
+renderPlot({
+  ggplot(get(paste('df_', substr(input$n_breaks, 3, nchar(input$n_breaks)), sep = ''))) +
+  geom_line(aes(x = x, y = value, colour = transformations), size = 0.8) +
+  geom_jitter(aes(y = target, x = x), colour = 'white', alpha = 0.8, size = 2) +
+  labs(y = "target \\ tranformations", x = 'x') +
+  labs(colour = "white") + theme(axis.title = element_text(colour = "gray100")) +
+  my_gg_theme
+
+
+})
+```
+
+##Exercise 2
+In this exercise I estimated the parameters $w_{1},\cdots,w_{9}$ using regularized least squares for sample sizes: 20, 40, 60, 80, 100. The approach used is based on (Bishop, 2006). The regression estimated is as follows: $$ y = w_{1} \phi_{1}(x) + \cdots +   w_{9} \phi_{9}(x)$$ I set the regularization parameter $\lambda$ to 0.1 (this should normally come from cross-validation, however, in this assignment I simply preset this value in order to ease the workout).
+
+```{r, message = FALSE}
+#create matrix with the transformations only
+phi <- as.matrix(my_values %>% select(-c(target,x)))
+
+#define function
+ols_reg <- function(phi, target, lambda){
+  x <- as.matrix(x)
+  target <- as.matrix(target)
+  w <- solve(lambda * diag(dim(phi)[2]) + t(phi) %*% (phi)) %*%  t(phi) %*% target
+  return(w)
+}
+
+#define the sample sizes we are interested in
+sample_sizes <- seq(20, 100, 20)
+
+#create dataframe for storing the results
+ols_reg_table <- data.frame(matrix(c(1), ncol = length(sample_sizes),
+                                   nrow = dim(phi)[2]))
+colnames(ols_reg_table) <- as.character(sample_sizes)
+
+#obtaining the results
+for (i in sample_sizes) {
+  ols_reg_table[, i/(dim(my_values)[1]/5)] <- ols_reg(phi = phi[1:i, ],
+                                                      target = target[1:i],
+                                                      lambda = 0.1)
+}
+
+```
+
+The results are stored in dataframe, where the columns denote the sample size and the rows the transformations. The dataframe contains estimated parameters $w$.
+```{r, message = FALSE, echo = FALSE}
+ols_reg_table
+
+```
+
+```{r, message = FALSE, echo = FALSE}
+#create dataframe we will later add to my_values data frame
+ols_reg_target <- matrix(ncol = length(sample_sizes), nrow = 100)
+for (i in 1:5) {
+  ols_reg_target[, i] <-  phi %*% as.matrix(ols_reg_table[, i])
+}
+
+colnames(ols_reg_target) <- paste('r', sample_sizes, sep = '')
+
+```
+
+##Exercise 3
+In this part we will estimate the parameters using bayesian linear regression assuming that the parameters have multivariate normal prior. Sample sizes are again 20, 40, 60, 80, 100. Here, I preselect the $\beta$ and $\alpha$. My prior belief on the distribution of weights is that these follow multinomial normal distribution with $means = 0$. Moreover, I believe that the weights have the same variance 0.5 and that they are not correlated with each other in any way. This means that the variance-covariance matrix of the multinomial distribution is equal to $\alpha * I_{k}$, where $k = 9$. The workaround is very similar to previous part (i.e. at first I created a function, then a dataframe to store my results, and then a for loop was used to fill the dataframe). I used following equations for calculating the posterior distribution:
+$$m_{N} = S_{N}(S_{0}^{-1}m_{0} + \beta\Phi^{t}t)$$ 
+$$S_{N}^{-1} = S_{0}^{-1} + \beta\Phi^{t}\Phi $$
+The posterior distribution has then the following form:
+$$p(w|t) = \mathcal{N}(w|m_{N}, S_{N})$$
+For more details on this approach please see (Bishop, 2006) p. 152 and p. 153. Please note that I decided not to use the gradual updating in this model as the data points are all available at the beginning of the analysis.
+
+```{r, message = FALSE}
+bayes_regr <- function(phi, target, beta, prior_mean, alpha){
+  
+  prior_var <- alpha * diag(1,dim(phi)[2])
+  S <- solve(prior_var) + beta * t(phi) %*% phi
+  m <- solve(S) %*% (solve(prior_var) %*% prior_mean +
+                       beta * t(phi) %*% as.matrix(target))
+ 
+    return(m)
+}
+
+ols_bayes_table <- data.frame(matrix(c(1),ncol = length(sample_sizes),
+                                     nrow = dim(phi)[2]))
+colnames(ols_bayes_table) <- as.character(sample_sizes)
+
+for (i in seq((dim(my_values)[1]/5),dim(my_values)[1],(dim(my_values)[1]/5))) {
+  ols_bayes_table[, i/(dim(my_values)[1]/5)] <- bayes_regr(phi = phi[1:i, ],
+                                                     target = target[1:i],
+                                                      beta = 25,
+                                                      prior_mean = rep(0,9),
+                                                      alpha = 0.5)
+}
+
+```
+
+The results are stored in data frame, where the columns denote the sample size and the rows the transformations. The dataframe contains estimated parameters $w$.
+
+```{r, message = FALSE, echo = FALSE}
+ols_bayes_table
+
+
+```
+
+```{r, message = FALSE, echo = FALSE}
+ols_bayes_target <- matrix(ncol = length(sample_sizes), nrow = 100)
+
+for (i in 1:5) {
+  ols_bayes_target[, i] <-  phi %*% as.matrix(ols_bayes_table[, i])
+}
+
+colnames(ols_bayes_target) <- paste('b', sample_sizes, sep = '')
+
+
+```
+
+##Exercise 4
+
+In this exercise I was asked to compare parameters of RLS and BLs. I used tables with the estimated weights and also the fitted values from the models as I believe plots allow for better understanding of the concept. For this purpose I created a dataframe that contains $x$, target variable, the transformed variables and the fitted values from regressions. 
+
+```{r, message = FALSE}
+my_values <- cbind(my_values, ols_reg_target, ols_bayes_target)
+str(my_values)
+```
+
+Firstly, let's focus on the tables printed below. These contains parameters obtained from regressions, the organization scheme is straightforward. The parameters are very similar, this is given by the fact that I chose very good $\lambda$, $\alpha$ and $\beta$. One can notice that *even* tranformations are $\approx \pm 1$, whereas the *odd* tranformations are close to zero. This intuitively corresponds to the choice of gaussian tranformations (please see the first plot).
+
+```{r}
+print(ols_bayes_table)
+print(ols_reg_table)
+```
+
+ As the next step, the fitted values from regressions were plotted. The white line shows fitted values from bayesian linear regression and green line shows fitted values from regularized least squares. In this plot we can compare performance of these two models with sample size $N = 20$. It is immediately visible, that the performance of both models is decent even on a very limited sample. The fitted values follow the target variable almost flawlessly, nevertheless, it can be seen that for $x \approx 0.25$  and $x \approx 0.75$ the models do not fit perfectly.
+ 
+```{r, message = FALSE}
+ggplot(my_values) +
+  geom_line(aes(x = x, y = b20), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = target), colour = 'red') +
+  geom_line(aes(x = x, y = r20), colour = 'darkgreen', size = 1) +
+  my_gg_theme + labs(y = "target \\ fitted values") + labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+```
+
+
+I also plotted this for sample: $N = 100$. As you can see, the performance is even better.It is also worth noting that fitted values of these two models for $N = 100$ overlap, which confirms that the performance of these two models is similar for large samples if $\frac{\alpha}{\beta} \approx \lambda$. In our case the $\frac{\alpha}{\beta} = 0.02$ and $\lambda = 0.1$.
+
+```{r, message = FALSE}
+ggplot(my_values) +
+  geom_line(aes(x = x, y = b100), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = target), colour = 'red') +
+  geom_line(aes(x = x, y = r100), colour = 'darkgreen', size = 1) +
+  my_gg_theme + labs(y = "target \\ fitted values") + labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+```
+
+The decent performance of the models is given by the specification of the regressions - for example if my prior belief about distribution of the weights was far from reality, the BLS would perform significantly worse or if my regularization parameter $\lambda$ was set to a different value, the RLS regression performance would be negatively affected. Let's demonstrate that - I will use $\lambda = 2$ and  $\alpha = 0.5, \beta = 10, means = (2,\ldots, 2)$.
+
+```{r, message = FALSE, echo = FALSE}
+ols_reg_table_fu <- data.frame(matrix(c(1), ncol = length(sample_sizes),
+                                   nrow = dim(phi)[2]))
+colnames(ols_reg_table_fu) <- as.character(sample_sizes)
+
+for (i in sample_sizes) {
+  ols_reg_table_fu[, i/(dim(my_values)[1]/5)] <- ols_reg(phi = phi[1:i, ],
+                                                      target = target[1:i],
+                                                      lambda = 0.5)
+}
+
+ols_reg_target_fu <- matrix(ncol = length(sample_sizes), nrow = 100)
+
+for (i in 1:5) {
+  ols_reg_target_fu[, i] <-  phi %*% as.matrix(ols_reg_table_fu[, i])
+}
+
+colnames(ols_reg_target_fu) <- paste('rfu', sample_sizes, sep = '')
+
+ols_bayes_table_fu <- data.frame(matrix(c(1),ncol = length(sample_sizes),
+                                     nrow = dim(phi)[2]))
+colnames(ols_bayes_table_fu) <- as.character(sample_sizes)
+
+for (i in seq((dim(my_values)[1] / 5),dim(my_values)[1],(dim(my_values)[1] / 5))) {
+  ols_bayes_table_fu[, i/(dim(my_values)[1] / 5)] <- bayes_regr(phi = phi[1:i, ],
+                                                     target = target[1:i],
+                                                      beta = 10,
+                                                      prior_mean = rep(2,9),
+                                                      alpha = 0.5)
+}
+
+ols_bayes_target_fu <- matrix(ncol = length(sample_sizes), nrow = 100)
+
+for (i in 1:5) {
+  ols_bayes_target_fu[, i] <-  phi %*% as.matrix(ols_bayes_table_fu[, i])
+}
+
+colnames(ols_bayes_target_fu) <- paste('bfu', sample_sizes, sep = '')
+
+my_values <- cbind(my_values, ols_reg_target_fu, ols_bayes_target_fu)
+```
+
+In the same manner as before I plotted the performance of models trained on $N = 20$ at first. It is evident that both models' performance is much worse than before. The RLS in this case performs better than BLS.
+
+```{r, message = FALSE}
+ggplot(my_values) +
+  geom_line(aes(x = x, y = bfu20), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = target), colour = 'red') +
+  geom_line(aes(x = x, y = rfu20), colour = 'darkgreen', size = 1) +
+  my_gg_theme + labs(y = "target \\ fitted values") + labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+```
+
+Here I plot the performance of models trained on $N = 100$. The fitted values follow the target values much better than before, BLS performance is very similar to the one of RLS. The plot is not that dissimilar to the plot I showed for $\lambda = 0.1, \alpha = 0.5, \beta = 25, means = (0, \ldots, 0)$ and $N = 100$. From this it is obvious that for not 'ideally' chosen prior or regularization parameter a large enough sample can be a remedy.
+
+```{r, message = FALSE}
+ggplot(my_values) +
+  geom_line(aes(x = x, y = bfu100), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = target), colour = 'red') +
+  geom_line(aes(x = x, y = rfu100), colour = 'darkgreen', size = 1) +
+  my_gg_theme + labs(y = "target \\ fitted values") + labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+```
+
+#Exercise 5
+In this exercise I was asked to estimate the model once again using Bayesian Linear Regression, however, this time the optimal $\alpha$ and $\beta$ were estimated from the data. The $\alpha$ denotes the variance of my prior distribution and $\beta$, the concentration parameter, can be loosely interpreted as *how important I hold the evidence obtained from (new) data*. I used approach suggested by (Bishop, 2006, p. 168-170).
+
+At first I created a dataframe to store the results and define a function used for updating my prior. The function returns a list consisting of the newly calculated means and the newly calculated variance covariance matrix.
+```{r}
+brf_table <- matrix(ncol = 5, nrow = 9)
+
+brf_iter <- function(phi, target, beta, m_n_old, S_n_old){
+  assert_that(is.matrix(phi))
+  assert_that(is.matrix(target))
+
+  m_0 <- m_n_old
+  S_0 <- S_n_old
+
+
+  S_n_new <- solve(solve(S_0) + beta * t(phi) %*% phi)
+  m_n_new <- S_n_new %*% (solve(S_0) %*% m_0 + beta * t(phi) %*% target)
+
+
+  return(list(m_n_new, S_n_new))
+}
+
+```
+
+Secondly, I created a function that estimates the regression. Note that the arguments *max_n_iter, stop_d_alpha* and *stop_d_beta* denote when to stop the while loop. The *stop_d_alpha* and *stop_d_beta* are the minimal value of change in $\alpha$ and $\beta$, for which the algorithm continues optimizing. Once the change in both is smaller than the specified values, the algorithm stops. The argument *max_n_iter* is present for the case when $\alpha$ or $\beta$ do not converge. It stops the while loop after specified number of iterations.
+
+```{r}
+bayes_regr_f <- function(phi, target, max_n_iter = 10000,
+                         stop_d_alpha = 0.01, stop_d_beta = 0.01){
+  alpha <- 0.5
+  beta <- 5
+  m_n_new <- as.matrix(rep(0, 9))
+  S_n_new <- alpha * diag(1, 9)
+  iteration <- 1
+  d_alpha <- 5
+  d_beta <- 5
+
+  while ((iteration < max_n_iter) & ((abs(d_alpha) > stop_d_alpha) | (abs(d_beta) > stop_d_beta))) {
+    lambdas <- eigen(beta * t(phi) %*% phi)$values
+    gamma <- 0
+    for (lambda in lambdas) {
+      gamma <- gamma + (lambda / (alpha + lambda))
+    }
+
+    iter_mN_SN <- brf_iter(phi = phi,
+                           target = as.matrix(target),
+                           beta = beta,
+                           m_n_old = m_n_new,
+                           S_n_old = S_n_new)
+    m_n_new <- iter_mN_SN[[1]]
+    S_n_new <- iter_mN_SN[[2]]
+    SSR <- 0
+    for (i in 1:nrow(phi)) {
+      SSR <- SSR + (target[i] - (t(m_n_new) %*% phi[i, ]))^2
+    }
+
+    d_alpha <- (gamma / (t(m_n_new) %*% m_n_new)) - alpha
+    alpha <- as.numeric(alpha + d_alpha)
+
+    d_beta <- (1/((1 / (nrow(phi) - gamma)) * SSR)) - beta
+    beta <- as.numeric(beta + d_beta)
+    iteration <- iteration + 1
+  }
+  
+  s_out <- solve(solve(alpha * diag(1,9)) + beta * t(phi) %*% phi)
+  m_out <- s_out %*% (solve(alpha * diag(1,9)) %*% as.matrix(rep(0, 9)) +
+                      beta * t(phi) %*% as.matrix(target))
+  
+    
+  print(paste('The algorithm stopped after', iteration, 'iterations.'))
+  print(paste('The optimal alpha is ', alpha, '.', sep = ''))
+  print(paste('The optimal beta is ', beta, '.', sep = ''))
+  return(m_out)
+}
+
+```
+I found out that the optimal values for parameters were: $$\alpha \approx 1.97$$$$\beta \approx 106.58$$ for $N = 20$. For $N = 100$ the optimal values were: $$\alpha \approx 1.92$$ $$\beta \approx 107.4$$ For other sample sizes the found values were very similar, this can be easily checked by running the chunk below (they are printed in order $N=20, 40, \cdots$)
+
+As the next step, I filled the dataframe I created for the results. The columns denote the size $N$ of the used sample, the rows denote weights for particular transformations. I also calculated the fitted values and added these to the main dataframe. 
+```{r, results="hide"}
+for (i in sample_sizes) {
+  brf_table[,i / 20] <- bayes_regr_f(phi = phi[1:i,], target = as.matrix(target[1:i]), stop_d_alpha = 0.001,
+                                     stop_d_beta = 0.001, max_n_iter = 100)
+}
+
+brf_target <- matrix(ncol = length(sample_sizes), nrow = 100)
+
+for (i in 1:5) {
+  brf_target[, i] <-  phi %*% as.matrix(brf_table[, i])
+}
+
+colnames(brf_target) <- paste('brf', sample_sizes, sep = '')
+
+my_values <- cbind(my_values, brf_target)
+```
+
+```{r, message = FALSE, echo = FALSE}
+colnames(brf_table) <- paste('brf', sample_sizes, sep = '')
+brf_table
+
+```
+
+#Exercise 6
+
+In this exercise I compared the performance of the models. I did not compare the performance of the models for each particular sample, rather I compared the performance for $N = 20$ and $N = 100$ as these are the boundaries of the interval for $N$. I generated new data from the dgp used for generating the training data, i.e.: $$y_{i} = \sin(2\pi x) + noise$$ and these were be used as the testing dataset. Specifically, I computed the predicted values using coefficients obtained from each regression (3 regressions, each on 5 different samples) and compared these with the test data. I used plots and RMSE for this comparison.
+
+In this chunk I created the testing dataset and added the predicted values.
+```{r}
+my_values_test <- my_func_2(n = 100)
+for (i in (1:9)) {
+  my_values_test <- cbind(my_values_test,assign(paste('trans_', i, sep = ''),
+                                      gaus_func(x = my_values_test$x,
+                                                mu = (-1 + (i - 1)*0.25),
+                                                sigma_sq = 0.02)))
+  
+  colnames(my_values_test)[i + 2] <- paste('trans_', i, sep = '')
+}
+rm(list = ls(pattern = "trans"))
+phi_test <- as.matrix(my_values_test %>% select(-c(target,x)))
+
+#brf test
+brf_target_test <- as.data.frame(matrix(nrow = 100, ncol = 5))
+for (i in 1:5) {
+  brf_target_test[, i] <-  phi_test %*% as.matrix(brf_table[, i])
+}
+
+colnames(brf_target_test) <- paste('brf_test', sample_sizes, sep = '')
+
+my_values_test <- cbind(my_values_test, brf_target_test)
+
+#bayesian ols test
+ols_bayes_target_test <- matrix(ncol = length(sample_sizes), nrow = 100)
+
+for (i in 1:5) {
+  ols_bayes_target_test[, i] <-  phi_test %*% as.matrix(ols_bayes_table[, i])
+}
+
+colnames(ols_bayes_target_test) <- paste('b_test', sample_sizes, sep = '')
+
+#reg least squares test
+ols_reg_target_test <- matrix(ncol = length(sample_sizes), nrow = 100)
+for (i in 1:5) {
+  ols_reg_target_test[, i] <-  phi_test %*% as.matrix(ols_reg_table[, i])
+}
+
+colnames(ols_reg_target_test) <- paste('r_test', sample_sizes, sep = '')
+
+my_values_test <- cbind(my_values_test, brf_target_test, ols_bayes_target_test, ols_reg_target_test)
+```
+
+
+####RMSE
+Here I would like to compare the RMSE of the models. The RMSE was calculated according to the following formula: $$RMSE = \sqrt{\sum_{i}\frac{({y_{i}-t_{i}})^{2}}{100}}$$ where the $y$ denotes the test variable and $t$ the predicted values.
+
+In this chunk I created the table containing the RMSE values for each model and $N$.
+```{r}
+my_values_test$test <- my_values_test$target
+my_values_test$target <- NULL
+
+
+
+root_mse <- function(test, predicted){
+  predicted <- as.numeric(predicted)
+  test <- as.numeric(test)
+  return(sqrt((sum((test - predicted) ^ 2)) / length(predicted)))
+  
+}
+
+rmse <- as.data.frame(matrix(ncol = 3,nrow = 5))
+row.names(rmse) <- c('20', '40', '60', '80', '100')
+colnames(rmse) <- c('RLS', 'BLS', 'BLF')
+
+for (i in (1:5)) {
+  rmse[i, 1] <- root_mse(ols_reg_target_test[ , i], my_values_test$test)
+  rmse[i, 2] <- root_mse(ols_bayes_target_test[, i], my_values_test$test)
+  rmse[i, 3] <- root_mse(brf_target_test[ ,i], my_values_test$test)
+}
+
+```
+
+The table comparing the RMSE is provided below. As we can see, the RMSE of RLS and BLS is very similar, and decreases gradually with increasing sample size. The RMSE of BLF is significantly lower for small sample, however in bigger samples the RLS and BLS catch up as the decrease in BLF is not as rapid. This result shows that correctly specified prior belief can significantly improve regression performance on small samples. On the other hand, in larger samples the added value of correctly specified prior gradually vanishes as the importance of the prior decreases.
+```{r}
+print(rmse)
+```
+
+Other possible metrics for regression include use of MAE - Mean Absolute Error, MSE - Mean Squared Error, MAPE - Mean Absolute Percentage Error etc. The metric for comparison should be carefully chosen according to the task - sometimes we care more about the outliers, so we use RMSE, sometimes we don't care about them that much, so we use MAE. Sometimes we don't care at all, so we use TMSE - Trimmed Mean Standard Error. This error function trims the upper $n \%$ of the errors and calculates the MSE for the rest.  I will not describe the other metrics in detail, as I believe their nature is obvious from their names. 
+
+I would also like to mention SSR or SSE-like metrics. As these are standard in Econometrics, I will not elaborate further on these. 
+
+I should also mention some metrics that can be used for classification problems. ROC - Receiver Operating Curve is created by plotting the true positive rate (TPR) against the false positive rate (FPR) at various threshold settings. There are other metrics, but these are based on the same ideas as ROC - they utilize False Positive Rate, False Negative Rate, True Positive Rate and True Negative Rate, thus I will not comment on these in detail.
+
+Another metric that can be used is based on entropy - Cross-Entropy. The basic intuition is that it measures how diverse is the difference of your predictions and the target variable and the uncertainty about the outcome when picking from the set.
+
+One can also use Accuracy, it measures the percentage of correctly classified inputs. 
+
+Same holds as for regression - one should carefully think through the task he is facing and choose a correct metric they will use. For reinforcement learning one should include several metrics and based on the performance of their model they should choose one (or combine several!).
+
+
+
+####Plots
+
+Here I provide two plots that show the predicted values and the target values from test dataset. The dark green lines denotes the RLS regression, the white the BLS regression and the yellow ones the BLF regression. We can see that for small sample $N=20$ the BLF regression performs better than RLS and BLS, which corresponds to the obtained RMSE.
+
+
+```{r, echo = FALSE}
+ggplot(my_values_test) + geom_line(aes(x = x, y = brf_test20), colour = 'yellow', size = 1) +
+  geom_line(aes(x = x, y = r_test20), colour = 'darkgreen', size = 1) +
+  geom_line(aes(x = x, y = b_test20), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = test), colour = 'red', size = 1) +
+  my_gg_theme + labs(y = "test \\ predicted values") +
+  labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+```
+
+However, for sample $N=100$ there is almost no difference in the predicted values. This result is encouraging - for a dgp like the one we used, $N=100$ is clearly enough to train a decent model, regardless of whether we use RLS, BLS or BLF.
+```{r, echo = FALSE}
+ggplot(my_values_test) +
+  geom_line(aes(x = x, y = brf_test100), colour = 'yellow', size = 1) +
+  geom_line(aes(x = x, y = r_test100), colour = 'darkgreen', size = 1) +
+  geom_line(aes(x = x, y = b_test100), colour = 'white', size = 1) +
+  geom_jitter(aes(x = x, y = test), colour = 'red', size = 1) +
+  my_gg_theme + labs(y = "test \\ predicted values") +
+  labs(colour = "white") + theme(axis.title = element_text(colour = "gray100"))
+
+```
+
+
+#Conclusion
+
+In this assignment I trained three models and compared their performance. I showed that for small samples the BLF is preffered whereas for the larger samples ($N \geq 100$) the performance is very similar. Therefore when conducting an analysis on larger samples, one should rather choose a model based on computational demands, interpretability etc. Furthermore I showed that for correctly specified $\lambda, \alpha$ and $\beta$ the performance of RLS and BLS is very similar, nevertheless the correct specification of these is not always an easy task (usually the true dgp is unknown). For this reason, if the dgp is unknown, one should always use crossvalidation when choosing the correct parameters of the regression.
+
+
+
